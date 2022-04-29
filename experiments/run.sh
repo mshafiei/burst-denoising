@@ -1,4 +1,5 @@
 #!/bin/bash
+export PATH=/root/anaconda3/bin:$PATH
 source ~/.bashrc
 cd /mshvol2/users/mohammad/optimization/burst-denoising-forked
 cp /root/ssh_mount/id_rsa* /root/.ssh/
