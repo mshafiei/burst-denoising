@@ -18,5 +18,5 @@ imageio.plugins.freeimage.download()
 export LD_LIBRARY_PATH=/usr/local/cuda-10.0/lib64:/usr/local/cuda-10.0/:$LD_LIBRARY_PATH
 export PYTHONPATH=`pwd`:/mshvol2/users/mohammad/cvgutils/
 echo command:
-echo python3 $@
+echo python $@
 python $@
