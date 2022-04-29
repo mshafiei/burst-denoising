@@ -86,6 +86,9 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     'viz_freq', 10000,
     'Frequency of visualization')
+flags.DEFINE_integer(
+    'save_freq', 10000,
+    'Frequency of saving weights')
 
 flags.DEFINE_string('logdir', './logger/Unet_test', 'Direction to store log used as ')
 flags.DEFINE_string('logger', 'tb', 'Where to dump the logs')
@@ -572,7 +575,7 @@ def train_merge_simple(filenames):
               fdict[g_index] = 0
               imgs, = sess.run([image_summaries], feed_dict=fdict)
               writers[0].add_summary(imgs, i)
-          if (i+1)%2000 == 0:
+          if (i+1)%FLAGS.save_freq == 0:
             print 'Saving ckpt at step',i
             saver.save(sess, FLAGS.train_log_dir + 'model.ckpt', global_step=i)
         for w in writers:
