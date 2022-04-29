@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /mshvol2/users/mohammad/optimization/deepfnf_fork
+cd /mshvol2/users/mohammad/optimization/burst-denoising-forked
 cp /root/ssh_mount/id_rsa* /root/.ssh/
 chmod 400 ~/.ssh/id_rsa
 # apt update
