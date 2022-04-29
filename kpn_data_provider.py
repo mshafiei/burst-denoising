@@ -103,7 +103,7 @@ def make_batch_hqjitter(patches, BURST_LENGTH, batch_size, repeats, height, widt
   delta_up = (jitter - smalljitter) * upscale
   smallj_patches = patches[:, delta_up:-delta_up, delta_up:-delta_up, ...]
 
-  unique = batch_size//repeats
+  unique = 1#batch_size//repeats
   batch = []
   for i in range(unique):
     for j in range(repeats):
@@ -141,14 +141,14 @@ def load_batch_hqjitter(dataset_dir, patches_per_img=32, min_queue=8, BURST_LENG
                         to_shift=1., upscale=1, jitter=1, smalljitter=1):
 
   filenames = [os.path.join(dataset_dir, f) for f in gfile.ListDirectory(dataset_dir)]
-  filename_queue = tf.train.string_input_producer(filenames)
-
+  filename_queue = tf.train.string_input_producer(filenames,capacity=min_queue + 3 * batch_size)
   _, image_file = tf.WholeFileReader().read(filename_queue)
   image = tf.image.decode_image(image_file)
-  patches = make_stack_hqjitter((tf.cast(image[0], tf.float32) / 255.)**degamma,
+  patches = make_stack_hqjitter((tf.cast(image, tf.float32) / 255.)**degamma,
                                                     height, width, patches_per_img, BURST_LENGTH, to_shift, upscale, jitter)
   unique = batch_size//repeats
-  # Batch it up.
+  # # Batch it up.
+  # # patches = tf.data.Dataset.from_tensors([patches]).shuffle(min_queue)
   patches  = tf.train.shuffle_batch(
         [patches],
         batch_size=unique,
@@ -157,7 +157,7 @@ def load_batch_hqjitter(dataset_dir, patches_per_img=32, min_queue=8, BURST_LENG
         enqueue_many=True,
         min_after_dequeue=min_queue)
 
-  print('PATCHES =================',patches.get_shape().as_list())
+  # print('PATCHES =================',patches.get_shape().as_list())
 
   patches = make_batch_hqjitter(patches, BURST_LENGTH, batch_size, repeats, height, width, to_shift, upscale, jitter, smalljitter)
   return patches

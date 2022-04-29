@@ -29,6 +29,8 @@ import kpn_arch
 import kpn_data_provider
 from demosaic_utils import *
 from tf_image import *
+import visualize as Viz
+
 
 FLAGS = flags.FLAGS
 
@@ -43,7 +45,7 @@ flags.DEFINE_string('train_log_dir', '/tmp/kpn_logs/',
 
 flags.DEFINE_string('data_dir', 'data/train', '')
 
-flags.DEFINE_string('dataset_dir', 'open-images-dataset', '')
+flags.DEFINE_string('dataset_dir', './data/challenge2018', '')
 
 flags.DEFINE_float('learning_rate', .0001, 'The learning rate')
 
@@ -81,8 +83,19 @@ flags.DEFINE_integer(
     'The Task ID. This value is used when training with multiple workers to '
     'identify each worker.')
 
+flags.DEFINE_integer(
+    'viz_freq', 10000,
+    'Frequency of visualization')
+
+flags.DEFINE_string('logdir', './logger/Unet_test', 'Direction to store log used as ')
+flags.DEFINE_string('logger', 'tb', 'Where to dump the logs')
+flags.DEFINE_string('expname', 'retrain', 'Where to dump the logs')
+flags.DEFINE_string('projectname', 'None', 'Name of the experiment used as logdir/exp_name')
+flags.DEFINE_bool('store_params',False,'Store parameters for debugging')
+flags.DEFINE_bool('load_params',False,'Load parameters for debugging')
 FLAGS = flags.FLAGS
 
+logger = Viz.logger(FLAGS)
 
 
 # Makes test data that looks like training data, can use for validation set
@@ -163,7 +176,7 @@ def train_merge_simple(filenames):
 
         dataset_dir = os.path.join(FLAGS.dataset_dir, 'train')
         demosaic_truth = kpn_data_provider.load_batch_hqjitter(dataset_dir, patches_per_img=4, min_queue=16,
-                            BURST_LENGTH=BURST_LENGTH, batch_size=batch, repeats=2, height=height, width=width,
+                            BURST_LENGTH=BURST_LENGTH, batch_size=batch, repeats=1, height=height, width=width,
                             degamma=2.2, to_shift=1., upscale=4, jitter=16, smalljitter=2)
         shift = tf.zeros([1])
         if not color:
@@ -419,6 +432,7 @@ def train_merge_simple(filenames):
       d_all = dict(dumb.items() + demosaic.items())
 
       losses = []
+      # psnrs = []
       for d in demosaic:
         if d.startswith(dnet):
           print 'LOSSES for',d
@@ -427,6 +441,7 @@ def train_merge_simple(filenames):
             a = anneals[d]
             print 'includes anneal'
           losses.append(basic_img_loss(demosaic[d], dt) * a)
+          # psnrs.append(Viz.get_psnr(demosaic[d], dt))
       slim.losses.add_loss(tf.reduce_sum(tf.stack(losses)))
 
 
@@ -514,8 +529,8 @@ def train_merge_simple(filenames):
         saver = tf.train.Saver(max_to_keep=None)
 
         print 'Initializers'
-        sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
+        sess.run(tf.global_variables_initializer())
 
         # This loads from last checkpoint, necessary for borg training to
         # not get restarted at every preemption event
@@ -532,8 +547,19 @@ def train_merge_simple(filenames):
         max_steps = FLAGS.max_number_of_steps
         for i_step in range(max_steps):
           #run optimization step5
+          #visualize 8 inputs, output, ground truth
           _, loss, i = sess.run([train_step_g, total_loss, gs])
+          if(i_step % FLAGS.viz_freq == 0):
+            psnr_val,demosaic_val,dt_val,noisy_val = sess.run([psnrs_g,demosaic,dt,invert_preproc(noisy)])
 
+            imgs = [v.mean(axis=0,keepdims=True).repeat(3,0) for k,v in demosaic_val.items()]
+            imgs += [im for im in noisy_val.mean(axis=0,keepdims=True).repeat(3,0).transpose(3,0,1,2)]
+            imgs.append(dt_val.mean(axis=0,keepdims=True).repeat(3,0))
+            labels = ['$I_0$','$I_1$','$I_2$','$I_3$','$I_4$','$I_5$','$I_6$','$I_7$','$I_{in0}$','$I_{in1}$','$I_{in2}$','$I_{in3}$','$I_{in4}$','$I_{in5}$','$I_{in6}$','$I_{in7}$','$I_{denoise}$','$I_{gt}$']
+            logger.addImage(imgs,labels,'None',dim_type='CHW')
+          logger.addScalar(loss,'total_loss','train')
+          logger.addScalar(psnr_val['dnet-s1'],'psnr','train')
+          logger.takeStep()
           print 'Step',i,'loss =',loss
           #training set summaries for tensorboard
           if True and (((i+1)%10 == 0 and i < 200) or ((i+1)%100 == 0)):
@@ -564,9 +590,9 @@ def main(_):
     gfile.MakeDirs(FLAGS.train_log_dir)
 
   data_dir = FLAGS.data_dir
-  filenames = [os.path.join(data_dir, f) for f in gfile.ListDirectory(data_dir) if f.startswith('tfdata')]
-  print(len(filenames),'real data files found (one whole burst each)')
-
+  # filenames = [os.path.join(data_dir, f) for f in gfile.ListDirectory(data_dir) if f.startswith('tfdata')]
+  # print(len(filenames),'real data files found (one whole burst each)')
+  filenames = []
   train_merge_simple(filenames)
 
 

@@ -1,0 +1,7 @@
+name: burst
+dependencies:
+  - python=2.7
+  - numpy
+  - tensorflow-gpu=1.13.1
+  - matplotlib
+  - scipy
