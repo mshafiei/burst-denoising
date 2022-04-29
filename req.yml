@@ -5,3 +5,15 @@ dependencies:
   - tensorflow-gpu=1.13.1
   - matplotlib
   - scipy
+  - natsort
+  - plotly
+  - pandas
+  - kaleido
+  - scikit-image
+  - opencv-python
+  - tensorboardX
+  - torch
+  - pip:
+    - wandb
+    - jaxlib
+    - jax
