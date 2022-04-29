@@ -87,7 +87,7 @@ flags.DEFINE_integer(
     'viz_freq', 10000,
     'Frequency of visualization')
 flags.DEFINE_integer(
-    'save_freq', 10000,
+    'save_freq', 50000,
     'Frequency of saving weights')
 
 flags.DEFINE_string('logdir', './logger/Unet_test', 'Direction to store log used as ')
