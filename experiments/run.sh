@@ -29,7 +29,7 @@ chmod 400 ~/.ssh/id_rsa
 # python3.7 -m pip install imageio tensorflow-gpu==1.15.0 scikit-image==0.16.2 tqdm PyExifTool piq lpips plotly==5.6.0 pandas kaleido
 conda env create -f req.yml
 conda activate burst
-pip install wandb natsort matplotlib scipy numpy tensorflow-gpu==1.13.1 plotly pandas kaleido scikit-image opencv-python==4.2.0.32 tensorboardX
+pip install wandb natsort matplotlib scipy numpy tensorflow-gpu==1.13.1 plotly pandas kaleido scikit-image opencv-python==4.2.0.32 tensorboardX==2.0
 conda activate burst
 python -c """import imageio
 imageio.plugins.freeimage.download()
