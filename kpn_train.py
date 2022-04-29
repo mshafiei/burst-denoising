@@ -30,7 +30,7 @@ import kpn_data_provider
 from demosaic_utils import *
 from tf_image import *
 import visualize as Viz
-
+from utils import dx, dy, screen_poisson
 
 FLAGS = flags.FLAGS
 
@@ -45,7 +45,7 @@ flags.DEFINE_string('train_log_dir', '/tmp/kpn_logs/',
 
 flags.DEFINE_string('data_dir', 'data/train', '')
 
-flags.DEFINE_string('dataset_dir', './data/challenge2018', '')
+flags.DEFINE_string('dataset_dir', '../burstdenoising/data/challenge2018', '')
 
 flags.DEFINE_float('learning_rate', .0001, 'The learning rate')
 
@@ -94,6 +94,7 @@ flags.DEFINE_string('logdir', './logger/Unet_test', 'Direction to store log used
 flags.DEFINE_string('logger', 'tb', 'Where to dump the logs')
 flags.DEFINE_string('expname', 'retrain', 'Where to dump the logs')
 flags.DEFINE_string('projectname', 'None', 'Name of the experiment used as logdir/exp_name')
+flags.DEFINE_string('model', 'fft', 'Name of the model')
 flags.DEFINE_bool('store_params',False,'Store parameters for debugging')
 flags.DEFINE_bool('load_params',False,'Load parameters for debugging')
 FLAGS = flags.FLAGS
@@ -340,7 +341,11 @@ def train_merge_simple(filenames):
 
         noisy_sig = tf.concat([noisy, sig_read], axis=-1)
         final_K = 5 # kpn filter output size
-        final_W = 1 # number of dims in output
+        if(FLAGS.model == 'fft'):
+          final_W = 2 # number of dims in output
+        else:
+          final_W = 1 # number of dims in output
+
         fh, fw = 2, 4 # how to show the filters in tensorboard
         invert_preprocessing = True
         filt_sup = False
@@ -358,12 +363,14 @@ def train_merge_simple(filenames):
           dumb['optimalA'], optfilt = optimal_convolve(invert_preproc(noisy),
                                                      invert_preproc(tf.expand_dims(dt, axis=-1)), final_K=final_K, conv_stack=noisy)
 
-
+        with tf.variable_scope('lmbda'):
+            lmbda = tf.random_uniform([1], minval=0, maxval=1, dtype=tf.float32)
+                
         use_S1 = True
         if (use_S1):
           key = dnet + 's1'
           # KPN created here
-          demosaic[key], filters[key] = kpn_arch.convolve_net2(noisy_sig, noisy, final_K, final_W,
+          demosaic[key], filters[key] = kpn_arch.convolve_net2(noisy_sig, noisy, final_K, final_W,model=FLAGS.model,lmbda=lmbda,imgsize=FLAGS.patch_size,
                                                             ch0=64, N=2, D=3,
                                                             scope='cnet2asep', separable=False, bonus=False, avg_spatial=False)
 
@@ -371,12 +378,18 @@ def train_merge_simple(filenames):
           meanfilt1 = tf.reduce_mean(filters[key], axis=[1,2])
           meanfilt1_ = tf.concat([tf.zeros_like(meanfilt1[...,0:1,:]), meanfilt1[...,1:,:]], axis=-2)
 
-          demosaic[key] = demosaic[key][...,0]
 
+          demosaic[key] = demosaic[key][...,0]
           # Annealed loss term
           anneal = FLAGS.anneal
+          reshape = lambda x:tf.transpose(x,[0,3,1,2])
+          reshape_back = lambda x:tf.transpose(x,[0,2,3,1])
           if anneal > 0:
-            per_layer = kpn_arch.convolve_per_layer(noisy, filters[key], final_K, final_W)
+            if(FLAGS.model == 'fft'):
+              per_layer,gradx,grady = kpn_arch.convolve_per_layer_fft(noisy, filters[key], final_K, final_W,lmbda,FLAGS.patch_size)
+            else:
+              per_layer = kpn_arch.convolve_per_layer(noisy, filters[key], final_K, final_W)
+
             for ii in range(BURST_LENGTH):
               itmd = per_layer[...,ii] * BURST_LENGTH
               # If we include image in demosaic dictionary the loss will be applied
@@ -553,12 +566,39 @@ def train_merge_simple(filenames):
           #visualize 8 inputs, output, ground truth
           _, loss, i = sess.run([train_step_g, total_loss, gs])
           if(i_step % FLAGS.viz_freq == 0):
-            psnr_val,demosaic_val,dt_val,noisy_val = sess.run([psnrs_g,demosaic,dt,invert_preproc(noisy)])
+            psnr_val,demosaic_val,dt_val,noisy_val,gradx_val, grady_val, per_layer_val = sess.run([psnrs_g,demosaic,dt,invert_preproc(noisy),gradx, grady, per_layer])
+            
+            per_layer_valx_lst,per_layer_valy_lst, per_layer_valxx_lst,per_layer_valyy_lst, gradx_val_lst, grady_val_lst, gradx_valx_lst, grady_valy_lst = [],[],[],[],[],[],[],[]
+            for per_layer_val_i, gradx_val_i, grady_val_i in zip(per_layer_val.transpose(3,1,2,0), gradx_val, grady_val):
+              per_layer_valx_lst.append(dx(per_layer_val_i[None,...]).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+              per_layer_valy_lst.append(dy(per_layer_val_i[None,...]).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+              per_layer_valxx_lst.append(dx(dx(per_layer_val_i[None,...])).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+              per_layer_valyy_lst.append(dy(dy(per_layer_val_i[None,...])).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+              gradx_val_lst.append(gradx_val_i.transpose(3,1,2,0).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+              grady_val_lst.append(grady_val_i.transpose(3,1,2,0).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+              gradx_valx_lst.append(dx(gradx_val_i).transpose(3,1,2,0).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+              grady_valy_lst.append(dy(grady_val_i).transpose(3,1,2,0).mean(axis=-1,keepdims=True).repeat(3,-1)[0].transpose([2,0,1]))
+
+            
 
             imgs = [v.mean(axis=0,keepdims=True).repeat(3,0) for k,v in demosaic_val.items()]
             imgs += [im for im in noisy_val.mean(axis=0,keepdims=True).repeat(3,0).transpose(3,0,1,2)]
             imgs.append(dt_val.mean(axis=0,keepdims=True).repeat(3,0))
-            labels = ['$I_0$','$I_1$','$I_2$','$I_3$','$I_4$','$I_5$','$I_6$','$I_7$','$I_{in0}$','$I_{in1}$','$I_{in2}$','$I_{in3}$','$I_{in4}$','$I_{in5}$','$I_{in6}$','$I_{in7}$','$I_{denoise}$','$I_{gt}$']
+            imgs += per_layer_valx_lst + gradx_val_lst
+            imgs += per_layer_valy_lst + grady_val_lst
+            imgs += per_layer_valxx_lst + gradx_valx_lst
+            imgs += per_layer_valyy_lst + per_layer_valyy_lst
+            labels = ['$I_0$','$I_1$','$I_2$','$I_3$','$I_4$','$I_5$','$I_6$','$I_7$','$I_{denoise}$',
+            '$I_{in0}$','$I_{in1}$','$I_{in2}$','$I_{in3}$','$I_{in4}$','$I_{in5}$',
+            '$I_{in6}$','$I_{in7}$','$I_{gt}$']
+            labels += ['$I_{%ix}$'%count for count in range(len(per_layer_valx_lst))]
+            labels += ['$g^x_{%i}$'%count for count in range(len(per_layer_valx_lst))]
+            labels += ['$I_{%iy}$'%count for count in range(len(per_layer_valx_lst))]
+            labels += ['$g^y_{%i}$'%count for count in range(len(per_layer_valx_lst))]
+            labels += ['$I_{%ixx}$'%count for count in range(len(per_layer_valx_lst))]
+            labels += ['$g^x_{%ix}$'%count for count in range(len(per_layer_valx_lst))]
+            labels += ['$I_{%iyy}$'%count for count in range(len(per_layer_valx_lst))]
+            labels += ['$g^y_{%iy}$'%count for count in range(len(per_layer_valx_lst))]
             logger.addImage(imgs,labels,'None',dim_type='CHW')
           logger.addScalar(loss,'total_loss','train')
           logger.addScalar(psnr_val['dnet-s1'],'psnr','train')

@@ -23,9 +23,31 @@ import numpy as np
 import tensorflow as tf
 slim = tf.contrib.slim
 from tf_image import *
+from functools import partial
+from utils import screen_poisson
 
+def convolve_fft(img_stack, filts, final_K, final_W,lmbda,imgsize):
+  initial_W = img_stack.get_shape().as_list()[-1]
+  inpt = img_stack
+  #b,h,w,k,k,N
+  fsh = tf.shape(filts)
+  filts = tf.reshape(filts, [fsh[0], fsh[1], fsh[2], final_K ** 2, initial_W, final_W])
 
-def convolve(img_stack, filts, final_K, final_W):
+  kpad = final_K//2
+  imgs = tf.pad(img_stack, [[0,0],[kpad,kpad],[kpad,kpad],[0,0]])
+  ish = tf.shape(img_stack)
+  img_stack = []
+  for i in range(final_K):
+    for j in range(final_K):
+      img_stack.append(imgs[:, i:tf.shape(imgs)[1]-2*kpad+i, j:tf.shape(imgs)[2]-2*kpad+j, :])
+  img_stack = tf.stack(img_stack, axis=-2)
+  img_stack = tf.reshape(img_stack, [ish[0], ish[1], ish[2], final_K**2, initial_W, 1])
+  img_net = tf.reduce_sum(img_stack * filts, axis=-3) # removes the final_K**2*initial_W dimension but keeps final_W
+  reshape = lambda x:tf.transpose(x,[0,3,1,2])
+  outpt = screen_poisson(lmbda,reshape(inpt),reshape(img_net[...,0]),reshape(img_net[...,1]),imgsize)
+  return tf.reshape(tf.reduce_sum(outpt,axis=1),[fsh[0], fsh[1], fsh[2],1]),img_net[...,0],img_net[...,1]
+
+def convolve_default(img_stack, filts, final_K, final_W):
   initial_W = img_stack.get_shape().as_list()[-1]
 
   fsh = tf.shape(filts)
@@ -73,9 +95,13 @@ def convolve_subset(inputs, ch, N, D=3):
 
 
 
-
-def convolve_net2(input_stack, conv_stack, final_K, final_W, ch0=64, N=4, D=3, scope='cnet2',
+def convolve_net2(input_stack, conv_stack, final_K, final_W,model,lmbda=None,imgsize=0, ch0=64, N=4, D=3, scope='cnet2',
                   equiv=False, separable=False, bonus=False, avg_spatial=False):
+  if(model == 'fft'):
+    convolvetmp = partial(convolve_fft,lmbda=lmbda,imgsize=imgsize)
+    convolve = lambda *x :convolvetmp(*x)[0]
+  else:
+    convolve = convolve_default
   with tf.variable_scope(scope):
     initial_W = conv_stack.get_shape().as_list()[-1]
     inputs = input_stack
@@ -214,6 +240,17 @@ def convolve_per_layer(conv_stack, filts, final_K, final_W):
     img_net.append(convolve(conv_stack[...,i:i+1], filts[...,i:i+1,:], final_K, final_W))
   img_net = tf.concat(img_net, axis=-1)
   return img_net
+
+def convolve_per_layer_fft(conv_stack, filts, final_K, final_W,lmbda,imgsize):
+  initial_W = conv_stack.get_shape().as_list()[-1]
+  img_net,gx_net, gy_net = [], [], []
+  for i in range(initial_W):
+    im, gx, gy = convolve_fft(conv_stack[...,i:i+1], filts[...,i:i+1,:], final_K, final_W,lmbda,imgsize)
+    img_net.append(im)
+    gx_net.append(gx)
+    gy_net.append(gy)
+  img_net = tf.concat(img_net, axis=-1)
+  return img_net,gx_net, gy_net
 
 
 
