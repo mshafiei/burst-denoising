@@ -5,7 +5,7 @@ exp_params="--dataset_dir ./data/challenge2018 \
 --train_log_dir ./logger/retrain \
 --expname retrain"
 
-name=msh-deepfnf-retrain1
+name=msh-burst-retrain1
 scriptFn="kpn_train.py $exp_params"
 
 # ./experiments/run_local.sh "$scriptFn"
